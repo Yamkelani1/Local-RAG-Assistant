@@ -1,0 +1,259 @@
+<html>
+<head>
+<title>app.py</title>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+<style type="text/css">
+.s0 { color: #cf8e6d;}
+.s1 { color: #bcbec4;}
+.s2 { color: #bcbec4;}
+.s3 { color: #6aab73;}
+.s4 { color: #2aacb8;}
+.s5 { color: #7a7e85;}
+.ln { color: #4b5059; font-weight: normal; font-style: normal; }
+</style>
+</head>
+<body bgcolor="#191a1c">
+<table CELLSPACING=0 CELLPADDING=5 COLS=1 WIDTH="100%" BGCOLOR="#606060" >
+<tr><td><center>
+<font face="Arial, Helvetica" color="#000000">
+app.py</font>
+</center></td></tr></table>
+<pre><a name="l1"><span class="ln">1    </span></a><span class="s0">import </span><span class="s1">json</span>
+<a name="l2"><span class="ln">2    </span></a><span class="s0">import </span><span class="s1">sqlite3</span>
+<a name="l3"><span class="ln">3    </span></a>
+<a name="l4"><span class="ln">4    </span></a><span class="s0">import </span><span class="s1">ollama</span>
+<a name="l5"><span class="ln">5    </span></a><span class="s0">import </span><span class="s1">streamlit </span><span class="s0">as </span><span class="s1">st</span>
+<a name="l6"><span class="ln">6    </span></a><span class="s0">from </span><span class="s1">pypdf </span><span class="s0">import </span><span class="s1">PdfReader</span>
+<a name="l7"><span class="ln">7    </span></a>
+<a name="l8"><span class="ln">8    </span></a><span class="s1">DB_PATH </span><span class="s2">= </span><span class="s3">&quot;research.db&quot;</span>
+<a name="l9"><span class="ln">9    </span></a><span class="s1">EMBED_MODEL </span><span class="s2">= </span><span class="s3">&quot;granite-embedding:30m&quot;</span>
+<a name="l10"><span class="ln">10   </span></a><span class="s1">CHAT_MODEL </span><span class="s2">= </span><span class="s3">&quot;gemma3:1b&quot;</span>
+<a name="l11"><span class="ln">11   </span></a><span class="s1">CHUNK_SIZE </span><span class="s2">= </span><span class="s4">900</span>
+<a name="l12"><span class="ln">12   </span></a><span class="s1">CHUNK_OVERLAP </span><span class="s2">= </span><span class="s4">150</span>
+<a name="l13"><span class="ln">13   </span></a><span class="s1">TOP_K </span><span class="s2">= </span><span class="s4">4</span>
+<a name="l14"><span class="ln">14   </span></a><span class="s1">DEFAULT_QUESTION </span><span class="s2">= </span><span class="s3">&quot;What helps distributed teams stay productive?&quot;</span>
+<a name="l15"><span class="ln">15   </span></a>
+<a name="l16"><span class="ln">16   </span></a>
+<a name="l17"><span class="ln">17   </span></a><span class="s0">def </span><span class="s1">initialize_database</span><span class="s2">():</span>
+<a name="l18"><span class="ln">18   </span></a>    <span class="s1">connection </span><span class="s2">= </span><span class="s1">sqlite3</span><span class="s2">.</span><span class="s1">connect</span><span class="s2">(</span><span class="s1">DB_PATH</span><span class="s2">)</span>
+<a name="l19"><span class="ln">19   </span></a>    <span class="s0">try</span><span class="s2">:</span>
+<a name="l20"><span class="ln">20   </span></a>        <span class="s1">connection</span><span class="s2">.</span><span class="s1">execute</span><span class="s2">(</span>
+<a name="l21"><span class="ln">21   </span></a>            <span class="s3">&quot;&quot;&quot; 
+<a name="l22"><span class="ln">22   </span></a>            CREATE TABLE IF NOT EXISTS chunks ( 
+<a name="l23"><span class="ln">23   </span></a>                                                  id TEXT PRIMARY KEY, 
+<a name="l24"><span class="ln">24   </span></a>                                                  source TEXT NOT NULL, 
+<a name="l25"><span class="ln">25   </span></a>                                                  page INTEGER NOT NULL, 
+<a name="l26"><span class="ln">26   </span></a>                                                  chunk_index INTEGER NOT NULL, 
+<a name="l27"><span class="ln">27   </span></a>                                                  content TEXT NOT NULL, 
+<a name="l28"><span class="ln">28   </span></a>                                                  embedding TEXT NOT NULL 
+<a name="l29"><span class="ln">29   </span></a>            ) 
+<a name="l30"><span class="ln">30   </span></a>            &quot;&quot;&quot;</span>
+<a name="l31"><span class="ln">31   </span></a>        <span class="s2">)</span>
+<a name="l32"><span class="ln">32   </span></a>        <span class="s1">connection</span><span class="s2">.</span><span class="s1">commit</span><span class="s2">()</span>
+<a name="l33"><span class="ln">33   </span></a>    <span class="s0">finally</span><span class="s2">:</span>
+<a name="l34"><span class="ln">34   </span></a>        <span class="s1">connection</span><span class="s2">.</span><span class="s1">close</span><span class="s2">()</span>
+<a name="l35"><span class="ln">35   </span></a>
+<a name="l36"><span class="ln">36   </span></a>
+<a name="l37"><span class="ln">37   </span></a><span class="s0">def </span><span class="s1">extract_documents</span><span class="s2">(</span><span class="s1">uploaded_files</span><span class="s2">):</span>
+<a name="l38"><span class="ln">38   </span></a>    <span class="s1">pages </span><span class="s2">= []</span>
+<a name="l39"><span class="ln">39   </span></a>    <span class="s0">for </span><span class="s1">uploaded_file </span><span class="s0">in </span><span class="s1">uploaded_files</span><span class="s2">:</span>
+<a name="l40"><span class="ln">40   </span></a>        <span class="s1">uploaded_file</span><span class="s2">.</span><span class="s1">seek</span><span class="s2">(</span><span class="s4">0</span><span class="s2">)</span>
+<a name="l41"><span class="ln">41   </span></a>        <span class="s1">source </span><span class="s2">= </span><span class="s1">uploaded_file</span><span class="s2">.</span><span class="s1">name</span>
+<a name="l42"><span class="ln">42   </span></a>        <span class="s0">if </span><span class="s1">source</span><span class="s2">.</span><span class="s1">lower</span><span class="s2">().</span><span class="s1">endswith</span><span class="s2">(</span><span class="s3">&quot;.pdf&quot;</span><span class="s2">):</span>
+<a name="l43"><span class="ln">43   </span></a>            <span class="s1">reader </span><span class="s2">= </span><span class="s1">PdfReader</span><span class="s2">(</span><span class="s1">uploaded_file</span><span class="s2">)</span>
+<a name="l44"><span class="ln">44   </span></a>            <span class="s0">for </span><span class="s1">page_number</span><span class="s2">, </span><span class="s1">page </span><span class="s0">in </span><span class="s1">enumerate</span><span class="s2">(</span><span class="s1">reader</span><span class="s2">.</span><span class="s1">pages</span><span class="s2">, </span><span class="s1">start</span><span class="s2">=</span><span class="s4">1</span><span class="s2">):</span>
+<a name="l45"><span class="ln">45   </span></a>                <span class="s1">text </span><span class="s2">= (</span><span class="s1">page</span><span class="s2">.</span><span class="s1">extract_text</span><span class="s2">() </span><span class="s0">or </span><span class="s3">&quot;&quot;</span><span class="s2">).</span><span class="s1">strip</span><span class="s2">()</span>
+<a name="l46"><span class="ln">46   </span></a>                <span class="s0">if </span><span class="s1">text</span><span class="s2">:</span>
+<a name="l47"><span class="ln">47   </span></a>                    <span class="s1">pages</span><span class="s2">.</span><span class="s1">append</span><span class="s2">({</span><span class="s3">&quot;source&quot;</span><span class="s2">: </span><span class="s1">source</span><span class="s2">, </span><span class="s3">&quot;page&quot;</span><span class="s2">: </span><span class="s1">page_number</span><span class="s2">, </span><span class="s3">&quot;text&quot;</span><span class="s2">: </span><span class="s1">text</span><span class="s2">})</span>
+<a name="l48"><span class="ln">48   </span></a>        <span class="s0">else</span><span class="s2">:</span>
+<a name="l49"><span class="ln">49   </span></a>            <span class="s1">text </span><span class="s2">= </span><span class="s1">uploaded_file</span><span class="s2">.</span><span class="s1">getvalue</span><span class="s2">().</span><span class="s1">decode</span><span class="s2">(</span><span class="s3">&quot;utf-8&quot;</span><span class="s2">, </span><span class="s1">errors</span><span class="s2">=</span><span class="s3">&quot;replace&quot;</span><span class="s2">).</span><span class="s1">strip</span><span class="s2">()</span>
+<a name="l50"><span class="ln">50   </span></a>            <span class="s0">if </span><span class="s1">text</span><span class="s2">:</span>
+<a name="l51"><span class="ln">51   </span></a>                <span class="s1">pages</span><span class="s2">.</span><span class="s1">append</span><span class="s2">({</span><span class="s3">&quot;source&quot;</span><span class="s2">: </span><span class="s1">source</span><span class="s2">, </span><span class="s3">&quot;page&quot;</span><span class="s2">: </span><span class="s4">1</span><span class="s2">, </span><span class="s3">&quot;text&quot;</span><span class="s2">: </span><span class="s1">text</span><span class="s2">})</span>
+<a name="l52"><span class="ln">52   </span></a>    <span class="s0">return </span><span class="s1">pages</span>
+<a name="l53"><span class="ln">53   </span></a>
+<a name="l54"><span class="ln">54   </span></a>
+<a name="l55"><span class="ln">55   </span></a><span class="s0">def </span><span class="s1">chunk_pages</span><span class="s2">(</span><span class="s1">pages</span><span class="s2">):</span>
+<a name="l56"><span class="ln">56   </span></a>    <span class="s1">chunks </span><span class="s2">= []</span>
+<a name="l57"><span class="ln">57   </span></a>    <span class="s0">for </span><span class="s1">page </span><span class="s0">in </span><span class="s1">pages</span><span class="s2">:</span>
+<a name="l58"><span class="ln">58   </span></a>        <span class="s1">text </span><span class="s2">= </span><span class="s1">page</span><span class="s2">[</span><span class="s3">&quot;text&quot;</span><span class="s2">]</span>
+<a name="l59"><span class="ln">59   </span></a>        <span class="s1">start </span><span class="s2">= </span><span class="s4">0</span>
+<a name="l60"><span class="ln">60   </span></a>        <span class="s1">chunk_index </span><span class="s2">= </span><span class="s4">0</span>
+<a name="l61"><span class="ln">61   </span></a>        <span class="s0">while </span><span class="s1">start </span><span class="s2">&lt; </span><span class="s1">len</span><span class="s2">(</span><span class="s1">text</span><span class="s2">):</span>
+<a name="l62"><span class="ln">62   </span></a>            <span class="s1">end </span><span class="s2">= </span><span class="s1">min</span><span class="s2">(</span><span class="s1">start </span><span class="s2">+ </span><span class="s1">CHUNK_SIZE</span><span class="s2">, </span><span class="s1">len</span><span class="s2">(</span><span class="s1">text</span><span class="s2">))</span>
+<a name="l63"><span class="ln">63   </span></a>            <span class="s1">content </span><span class="s2">= </span><span class="s1">text</span><span class="s2">[</span><span class="s1">start</span><span class="s2">:</span><span class="s1">end</span><span class="s2">].</span><span class="s1">strip</span><span class="s2">()</span>
+<a name="l64"><span class="ln">64   </span></a>            <span class="s0">if </span><span class="s1">content</span><span class="s2">:</span>
+<a name="l65"><span class="ln">65   </span></a>                <span class="s1">chunks</span><span class="s2">.</span><span class="s1">append</span><span class="s2">({</span>
+<a name="l66"><span class="ln">66   </span></a>                    <span class="s3">&quot;id&quot;</span><span class="s2">: </span><span class="s3">f&quot;</span><span class="s0">{</span><span class="s1">page</span><span class="s2">[</span><span class="s3">'source'</span><span class="s2">]</span><span class="s0">}</span><span class="s3">|</span><span class="s0">{</span><span class="s1">page</span><span class="s2">[</span><span class="s3">'page'</span><span class="s2">]</span><span class="s0">}</span><span class="s3">|</span><span class="s0">{</span><span class="s1">chunk_index</span><span class="s0">}</span><span class="s3">&quot;</span><span class="s2">,</span>
+<a name="l67"><span class="ln">67   </span></a>                    <span class="s3">&quot;source&quot;</span><span class="s2">: </span><span class="s1">page</span><span class="s2">[</span><span class="s3">&quot;source&quot;</span><span class="s2">],</span>
+<a name="l68"><span class="ln">68   </span></a>                    <span class="s3">&quot;page&quot;</span><span class="s2">: </span><span class="s1">page</span><span class="s2">[</span><span class="s3">&quot;page&quot;</span><span class="s2">],</span>
+<a name="l69"><span class="ln">69   </span></a>                    <span class="s3">&quot;chunk_index&quot;</span><span class="s2">: </span><span class="s1">chunk_index</span><span class="s2">,</span>
+<a name="l70"><span class="ln">70   </span></a>                    <span class="s3">&quot;content&quot;</span><span class="s2">: </span><span class="s1">content</span><span class="s2">,</span>
+<a name="l71"><span class="ln">71   </span></a>                <span class="s2">})</span>
+<a name="l72"><span class="ln">72   </span></a>            <span class="s0">if </span><span class="s1">end </span><span class="s2">== </span><span class="s1">len</span><span class="s2">(</span><span class="s1">text</span><span class="s2">):</span>
+<a name="l73"><span class="ln">73   </span></a>                <span class="s0">break</span>
+<a name="l74"><span class="ln">74   </span></a>            <span class="s1">start </span><span class="s2">= </span><span class="s1">end </span><span class="s2">- </span><span class="s1">CHUNK_OVERLAP</span>
+<a name="l75"><span class="ln">75   </span></a>            <span class="s1">chunk_index </span><span class="s2">+= </span><span class="s4">1</span>
+<a name="l76"><span class="ln">76   </span></a>    <span class="s0">return </span><span class="s1">chunks</span>
+<a name="l77"><span class="ln">77   </span></a>
+<a name="l78"><span class="ln">78   </span></a>
+<a name="l79"><span class="ln">79   </span></a><span class="s0">def </span><span class="s1">literal_phrase_search</span><span class="s2">(</span><span class="s1">chunks</span><span class="s2">, </span><span class="s1">question</span><span class="s2">):</span>
+<a name="l80"><span class="ln">80   </span></a>    <span class="s1">normalized_question </span><span class="s2">= </span><span class="s1">question</span><span class="s2">.</span><span class="s1">strip</span><span class="s2">().</span><span class="s1">lower</span><span class="s2">()</span>
+<a name="l81"><span class="ln">81   </span></a>    <span class="s0">if not </span><span class="s1">normalized_question</span><span class="s2">:</span>
+<a name="l82"><span class="ln">82   </span></a>        <span class="s0">return </span><span class="s2">[]</span>
+<a name="l83"><span class="ln">83   </span></a>    <span class="s0">return </span><span class="s2">[</span><span class="s1">chunk </span><span class="s0">for </span><span class="s1">chunk </span><span class="s0">in </span><span class="s1">chunks </span><span class="s0">if </span><span class="s1">normalized_question </span><span class="s0">in </span><span class="s1">chunk</span><span class="s2">[</span><span class="s3">&quot;content&quot;</span><span class="s2">].</span><span class="s1">lower</span><span class="s2">()]</span>
+<a name="l84"><span class="ln">84   </span></a>
+<a name="l85"><span class="ln">85   </span></a>
+<a name="l86"><span class="ln">86   </span></a><span class="s0">def </span><span class="s1">store_chunks</span><span class="s2">(</span><span class="s1">chunks</span><span class="s2">):</span>
+<a name="l87"><span class="ln">87   </span></a>    <span class="s1">texts </span><span class="s2">= [</span><span class="s1">chunk</span><span class="s2">[</span><span class="s3">&quot;content&quot;</span><span class="s2">] </span><span class="s0">for </span><span class="s1">chunk </span><span class="s0">in </span><span class="s1">chunks</span><span class="s2">]</span>
+<a name="l88"><span class="ln">88   </span></a>    <span class="s1">embeddings </span><span class="s2">= </span><span class="s1">ollama</span><span class="s2">.</span><span class="s1">embed</span><span class="s2">(</span><span class="s1">model</span><span class="s2">=</span><span class="s1">EMBED_MODEL</span><span class="s2">, </span><span class="s1">input</span><span class="s2">=</span><span class="s1">texts</span><span class="s2">).</span><span class="s1">embeddings</span>
+<a name="l89"><span class="ln">89   </span></a>    <span class="s1">rows </span><span class="s2">= [</span>
+<a name="l90"><span class="ln">90   </span></a>        <span class="s2">(</span>
+<a name="l91"><span class="ln">91   </span></a>            <span class="s1">chunk</span><span class="s2">[</span><span class="s3">&quot;id&quot;</span><span class="s2">],</span>
+<a name="l92"><span class="ln">92   </span></a>            <span class="s1">chunk</span><span class="s2">[</span><span class="s3">&quot;source&quot;</span><span class="s2">],</span>
+<a name="l93"><span class="ln">93   </span></a>            <span class="s1">chunk</span><span class="s2">[</span><span class="s3">&quot;page&quot;</span><span class="s2">],</span>
+<a name="l94"><span class="ln">94   </span></a>            <span class="s1">chunk</span><span class="s2">[</span><span class="s3">&quot;chunk_index&quot;</span><span class="s2">],</span>
+<a name="l95"><span class="ln">95   </span></a>            <span class="s1">chunk</span><span class="s2">[</span><span class="s3">&quot;content&quot;</span><span class="s2">],</span>
+<a name="l96"><span class="ln">96   </span></a>            <span class="s1">json</span><span class="s2">.</span><span class="s1">dumps</span><span class="s2">(</span><span class="s1">embedding</span><span class="s2">),</span>
+<a name="l97"><span class="ln">97   </span></a>        <span class="s2">)</span>
+<a name="l98"><span class="ln">98   </span></a>        <span class="s0">for </span><span class="s1">chunk</span><span class="s2">, </span><span class="s1">embedding </span><span class="s0">in </span><span class="s1">zip</span><span class="s2">(</span><span class="s1">chunks</span><span class="s2">, </span><span class="s1">embeddings</span><span class="s2">)</span>
+<a name="l99"><span class="ln">99   </span></a>    <span class="s2">]</span>
+<a name="l100"><span class="ln">100  </span></a>    <span class="s1">sources </span><span class="s2">= </span><span class="s1">sorted</span><span class="s2">({</span><span class="s1">chunk</span><span class="s2">[</span><span class="s3">&quot;source&quot;</span><span class="s2">] </span><span class="s0">for </span><span class="s1">chunk </span><span class="s0">in </span><span class="s1">chunks</span><span class="s2">})</span>
+<a name="l101"><span class="ln">101  </span></a>    <span class="s1">connection </span><span class="s2">= </span><span class="s1">sqlite3</span><span class="s2">.</span><span class="s1">connect</span><span class="s2">(</span><span class="s1">DB_PATH</span><span class="s2">)</span>
+<a name="l102"><span class="ln">102  </span></a>    <span class="s0">try</span><span class="s2">:</span>
+<a name="l103"><span class="ln">103  </span></a>        <span class="s1">connection</span><span class="s2">.</span><span class="s1">executemany</span><span class="s2">(</span>
+<a name="l104"><span class="ln">104  </span></a>            <span class="s3">&quot;DELETE FROM chunks WHERE source = ?&quot;</span><span class="s2">,</span>
+<a name="l105"><span class="ln">105  </span></a>            <span class="s2">[(</span><span class="s1">source</span><span class="s2">,) </span><span class="s0">for </span><span class="s1">source </span><span class="s0">in </span><span class="s1">sources</span><span class="s2">],</span>
+<a name="l106"><span class="ln">106  </span></a>        <span class="s2">)</span>
+<a name="l107"><span class="ln">107  </span></a>        <span class="s1">connection</span><span class="s2">.</span><span class="s1">executemany</span><span class="s2">(</span>
+<a name="l108"><span class="ln">108  </span></a>            <span class="s3">&quot;INSERT INTO chunks (id, source, page, chunk_index, content, embedding) VALUES (?, ?, ?, ?, ?, ?)&quot;</span><span class="s2">,</span>
+<a name="l109"><span class="ln">109  </span></a>            <span class="s1">rows</span><span class="s2">,</span>
+<a name="l110"><span class="ln">110  </span></a>        <span class="s2">)</span>
+<a name="l111"><span class="ln">111  </span></a>        <span class="s1">connection</span><span class="s2">.</span><span class="s1">commit</span><span class="s2">()</span>
+<a name="l112"><span class="ln">112  </span></a>    <span class="s0">finally</span><span class="s2">:</span>
+<a name="l113"><span class="ln">113  </span></a>        <span class="s1">connection</span><span class="s2">.</span><span class="s1">close</span><span class="s2">()</span>
+<a name="l114"><span class="ln">114  </span></a>
+<a name="l115"><span class="ln">115  </span></a>
+<a name="l116"><span class="ln">116  </span></a><span class="s0">def </span><span class="s1">count_stored_chunks</span><span class="s2">():</span>
+<a name="l117"><span class="ln">117  </span></a>    <span class="s1">connection </span><span class="s2">= </span><span class="s1">sqlite3</span><span class="s2">.</span><span class="s1">connect</span><span class="s2">(</span><span class="s1">DB_PATH</span><span class="s2">)</span>
+<a name="l118"><span class="ln">118  </span></a>    <span class="s0">try</span><span class="s2">:</span>
+<a name="l119"><span class="ln">119  </span></a>        <span class="s0">return </span><span class="s1">connection</span><span class="s2">.</span><span class="s1">execute</span><span class="s2">(</span><span class="s3">&quot;SELECT COUNT(*) FROM chunks&quot;</span><span class="s2">).</span><span class="s1">fetchone</span><span class="s2">()[</span><span class="s4">0</span><span class="s2">]</span>
+<a name="l120"><span class="ln">120  </span></a>    <span class="s0">finally</span><span class="s2">:</span>
+<a name="l121"><span class="ln">121  </span></a>        <span class="s1">connection</span><span class="s2">.</span><span class="s1">close</span><span class="s2">()</span>
+<a name="l122"><span class="ln">122  </span></a>
+<a name="l123"><span class="ln">123  </span></a>
+<a name="l124"><span class="ln">124  </span></a><span class="s0">def </span><span class="s1">load_rows</span><span class="s2">():</span>
+<a name="l125"><span class="ln">125  </span></a>    <span class="s1">connection </span><span class="s2">= </span><span class="s1">sqlite3</span><span class="s2">.</span><span class="s1">connect</span><span class="s2">(</span><span class="s1">DB_PATH</span><span class="s2">)</span>
+<a name="l126"><span class="ln">126  </span></a>    <span class="s0">try</span><span class="s2">:</span>
+<a name="l127"><span class="ln">127  </span></a>        <span class="s0">return </span><span class="s1">connection</span><span class="s2">.</span><span class="s1">execute</span><span class="s2">(</span>
+<a name="l128"><span class="ln">128  </span></a>            <span class="s3">&quot;SELECT source, page, chunk_index, content, embedding FROM chunks&quot;</span>
+<a name="l129"><span class="ln">129  </span></a>        <span class="s2">).</span><span class="s1">fetchall</span><span class="s2">()</span>
+<a name="l130"><span class="ln">130  </span></a>    <span class="s0">finally</span><span class="s2">:</span>
+<a name="l131"><span class="ln">131  </span></a>        <span class="s1">connection</span><span class="s2">.</span><span class="s1">close</span><span class="s2">()</span>
+<a name="l132"><span class="ln">132  </span></a>
+<a name="l133"><span class="ln">133  </span></a>
+<a name="l134"><span class="ln">134  </span></a><span class="s0">def </span><span class="s1">cosine_similarity</span><span class="s2">(</span><span class="s1">left</span><span class="s2">, </span><span class="s1">right</span><span class="s2">):</span>
+<a name="l135"><span class="ln">135  </span></a>    <span class="s1">dot_product </span><span class="s2">= </span><span class="s1">sum</span><span class="s2">(</span><span class="s1">a </span><span class="s2">* </span><span class="s1">b </span><span class="s0">for </span><span class="s1">a</span><span class="s2">, </span><span class="s1">b </span><span class="s0">in </span><span class="s1">zip</span><span class="s2">(</span><span class="s1">left</span><span class="s2">, </span><span class="s1">right</span><span class="s2">))</span>
+<a name="l136"><span class="ln">136  </span></a>    <span class="s1">left_magnitude </span><span class="s2">= </span><span class="s1">sum</span><span class="s2">(</span><span class="s1">value </span><span class="s2">* </span><span class="s1">value </span><span class="s0">for </span><span class="s1">value </span><span class="s0">in </span><span class="s1">left</span><span class="s2">) ** </span><span class="s4">0.5</span>
+<a name="l137"><span class="ln">137  </span></a>    <span class="s1">right_magnitude </span><span class="s2">= </span><span class="s1">sum</span><span class="s2">(</span><span class="s1">value </span><span class="s2">* </span><span class="s1">value </span><span class="s0">for </span><span class="s1">value </span><span class="s0">in </span><span class="s1">right</span><span class="s2">) ** </span><span class="s4">0.5</span>
+<a name="l138"><span class="ln">138  </span></a>    <span class="s0">if </span><span class="s1">left_magnitude </span><span class="s2">== </span><span class="s4">0 </span><span class="s0">or </span><span class="s1">right_magnitude </span><span class="s2">== </span><span class="s4">0</span><span class="s2">:</span>
+<a name="l139"><span class="ln">139  </span></a>        <span class="s0">return </span><span class="s4">0.0</span>
+<a name="l140"><span class="ln">140  </span></a>    <span class="s0">return </span><span class="s1">dot_product </span><span class="s2">/ (</span><span class="s1">left_magnitude </span><span class="s2">* </span><span class="s1">right_magnitude</span><span class="s2">)</span>
+<a name="l141"><span class="ln">141  </span></a>
+<a name="l142"><span class="ln">142  </span></a>
+<a name="l143"><span class="ln">143  </span></a><span class="s0">def </span><span class="s1">retrieve</span><span class="s2">(</span><span class="s1">question</span><span class="s2">):</span>
+<a name="l144"><span class="ln">144  </span></a>    <span class="s1">rows </span><span class="s2">= </span><span class="s1">load_rows</span><span class="s2">()</span>
+<a name="l145"><span class="ln">145  </span></a>    <span class="s0">if not </span><span class="s1">rows</span><span class="s2">:</span>
+<a name="l146"><span class="ln">146  </span></a>        <span class="s0">return </span><span class="s2">[]</span>
+<a name="l147"><span class="ln">147  </span></a>    <span class="s1">query_vector </span><span class="s2">= </span><span class="s1">ollama</span><span class="s2">.</span><span class="s1">embed</span><span class="s2">(</span><span class="s1">model</span><span class="s2">=</span><span class="s1">EMBED_MODEL</span><span class="s2">, </span><span class="s1">input</span><span class="s2">=</span><span class="s1">question</span><span class="s2">).</span><span class="s1">embeddings</span><span class="s2">[</span><span class="s4">0</span><span class="s2">]</span>
+<a name="l148"><span class="ln">148  </span></a>    <span class="s1">scored </span><span class="s2">= []</span>
+<a name="l149"><span class="ln">149  </span></a>    <span class="s0">for </span><span class="s1">source</span><span class="s2">, </span><span class="s1">page</span><span class="s2">, </span><span class="s1">chunk_index</span><span class="s2">, </span><span class="s1">content</span><span class="s2">, </span><span class="s1">embedding_json </span><span class="s0">in </span><span class="s1">rows</span><span class="s2">:</span>
+<a name="l150"><span class="ln">150  </span></a>        <span class="s1">scored</span><span class="s2">.</span><span class="s1">append</span><span class="s2">({</span>
+<a name="l151"><span class="ln">151  </span></a>            <span class="s3">&quot;source&quot;</span><span class="s2">: </span><span class="s1">source</span><span class="s2">,</span>
+<a name="l152"><span class="ln">152  </span></a>            <span class="s3">&quot;page&quot;</span><span class="s2">: </span><span class="s1">page</span><span class="s2">,</span>
+<a name="l153"><span class="ln">153  </span></a>            <span class="s3">&quot;chunk_index&quot;</span><span class="s2">: </span><span class="s1">chunk_index</span><span class="s2">,</span>
+<a name="l154"><span class="ln">154  </span></a>            <span class="s3">&quot;content&quot;</span><span class="s2">: </span><span class="s1">content</span><span class="s2">,</span>
+<a name="l155"><span class="ln">155  </span></a>            <span class="s3">&quot;score&quot;</span><span class="s2">: </span><span class="s1">cosine_similarity</span><span class="s2">(</span><span class="s1">query_vector</span><span class="s2">, </span><span class="s1">json</span><span class="s2">.</span><span class="s1">loads</span><span class="s2">(</span><span class="s1">embedding_json</span><span class="s2">)),</span>
+<a name="l156"><span class="ln">156  </span></a>        <span class="s2">})</span>
+<a name="l157"><span class="ln">157  </span></a>    <span class="s1">scored</span><span class="s2">.</span><span class="s1">sort</span><span class="s2">(</span><span class="s1">key</span><span class="s2">=</span><span class="s0">lambda </span><span class="s1">item</span><span class="s2">: </span><span class="s1">item</span><span class="s2">[</span><span class="s3">&quot;score&quot;</span><span class="s2">], </span><span class="s1">reverse</span><span class="s2">=</span><span class="s0">True</span><span class="s2">)</span>
+<a name="l158"><span class="ln">158  </span></a>    <span class="s0">return </span><span class="s1">scored</span><span class="s2">[:</span><span class="s1">TOP_K</span><span class="s2">]</span>
+<a name="l159"><span class="ln">159  </span></a>
+<a name="l160"><span class="ln">160  </span></a>
+<a name="l161"><span class="ln">161  </span></a><span class="s0">def </span><span class="s1">answer_question</span><span class="s2">(</span><span class="s1">question</span><span class="s2">, </span><span class="s1">evidence</span><span class="s2">):</span>
+<a name="l162"><span class="ln">162  </span></a>    <span class="s1">evidence_text </span><span class="s2">= </span><span class="s3">&quot;</span><span class="s0">\n\n</span><span class="s3">&quot;</span><span class="s2">.</span><span class="s1">join</span><span class="s2">(</span>
+<a name="l163"><span class="ln">163  </span></a>        <span class="s3">f&quot;[Source </span><span class="s0">{</span><span class="s1">index</span><span class="s0">}</span><span class="s3">: </span><span class="s0">{</span><span class="s1">item</span><span class="s2">[</span><span class="s3">'source'</span><span class="s2">]</span><span class="s0">}</span><span class="s3">, page </span><span class="s0">{</span><span class="s1">item</span><span class="s2">[</span><span class="s3">'page'</span><span class="s2">]</span><span class="s0">}</span><span class="s3">]</span><span class="s0">\n{</span><span class="s1">item</span><span class="s2">[</span><span class="s3">'content'</span><span class="s2">]</span><span class="s0">}</span><span class="s3">&quot;</span>
+<a name="l164"><span class="ln">164  </span></a>        <span class="s0">for </span><span class="s1">index</span><span class="s2">, </span><span class="s1">item </span><span class="s0">in </span><span class="s1">enumerate</span><span class="s2">(</span><span class="s1">evidence</span><span class="s2">, </span><span class="s1">start</span><span class="s2">=</span><span class="s4">1</span><span class="s2">)</span>
+<a name="l165"><span class="ln">165  </span></a>    <span class="s2">)</span>
+<a name="l166"><span class="ln">166  </span></a>    <span class="s1">response </span><span class="s2">= </span><span class="s1">ollama</span><span class="s2">.</span><span class="s1">chat</span><span class="s2">(</span>
+<a name="l167"><span class="ln">167  </span></a>        <span class="s1">model</span><span class="s2">=</span><span class="s1">CHAT_MODEL</span><span class="s2">,</span>
+<a name="l168"><span class="ln">168  </span></a>        <span class="s1">messages</span><span class="s2">=[</span>
+<a name="l169"><span class="ln">169  </span></a>            <span class="s2">{</span>
+<a name="l170"><span class="ln">170  </span></a>                <span class="s3">&quot;role&quot;</span><span class="s2">: </span><span class="s3">&quot;system&quot;</span><span class="s2">,</span>
+<a name="l171"><span class="ln">171  </span></a>                <span class="s3">&quot;content&quot;</span><span class="s2">: </span><span class="s3">&quot;You are a careful research assistant. Answer only from the provided evidence. Cite claims with the exact bracketed source labels. If the evidence is insufficient, say so clearly.&quot;</span><span class="s2">,</span>
+<a name="l172"><span class="ln">172  </span></a>            <span class="s2">},</span>
+<a name="l173"><span class="ln">173  </span></a>            <span class="s2">{</span>
+<a name="l174"><span class="ln">174  </span></a>                <span class="s3">&quot;role&quot;</span><span class="s2">: </span><span class="s3">&quot;user&quot;</span><span class="s2">,</span>
+<a name="l175"><span class="ln">175  </span></a>                <span class="s3">&quot;content&quot;</span><span class="s2">: </span><span class="s3">f&quot;Question:</span><span class="s0">\n{</span><span class="s1">question</span><span class="s0">}\n\n</span><span class="s3">Evidence:</span><span class="s0">\n{</span><span class="s1">evidence_text</span><span class="s0">}</span><span class="s3">&quot;</span><span class="s2">,</span>
+<a name="l176"><span class="ln">176  </span></a>            <span class="s2">},</span>
+<a name="l177"><span class="ln">177  </span></a>        <span class="s2">],</span>
+<a name="l178"><span class="ln">178  </span></a>    <span class="s2">)</span>
+<a name="l179"><span class="ln">179  </span></a>    <span class="s0">return </span><span class="s1">response</span><span class="s2">[</span><span class="s3">&quot;message&quot;</span><span class="s2">][</span><span class="s3">&quot;content&quot;</span><span class="s2">]</span>
+<a name="l180"><span class="ln">180  </span></a>
+<a name="l181"><span class="ln">181  </span></a>
+<a name="l182"><span class="ln">182  </span></a><span class="s0">def </span><span class="s1">render_evidence</span><span class="s2">(</span><span class="s1">evidence</span><span class="s2">):</span>
+<a name="l183"><span class="ln">183  </span></a>    <span class="s0">for </span><span class="s1">index</span><span class="s2">, </span><span class="s1">item </span><span class="s0">in </span><span class="s1">enumerate</span><span class="s2">(</span><span class="s1">evidence</span><span class="s2">, </span><span class="s1">start</span><span class="s2">=</span><span class="s4">1</span><span class="s2">):</span>
+<a name="l184"><span class="ln">184  </span></a>        <span class="s0">with </span><span class="s1">st</span><span class="s2">.</span><span class="s1">expander</span><span class="s2">(</span><span class="s3">f&quot;Source </span><span class="s0">{</span><span class="s1">index</span><span class="s0">}</span><span class="s3">: </span><span class="s0">{</span><span class="s1">item</span><span class="s2">[</span><span class="s3">'source'</span><span class="s2">]</span><span class="s0">}</span><span class="s3">, page </span><span class="s0">{</span><span class="s1">item</span><span class="s2">[</span><span class="s3">'page'</span><span class="s2">]</span><span class="s0">}</span><span class="s3">&quot;</span><span class="s2">):</span>
+<a name="l185"><span class="ln">185  </span></a>            <span class="s1">st</span><span class="s2">.</span><span class="s1">write</span><span class="s2">(</span><span class="s3">f&quot;Cosine similarity: </span><span class="s0">{</span><span class="s1">item</span><span class="s2">[</span><span class="s3">'score'</span><span class="s2">]</span><span class="s0">:</span><span class="s3">.3f</span><span class="s0">}</span><span class="s3">&quot;</span><span class="s2">)</span>
+<a name="l186"><span class="ln">186  </span></a>            <span class="s1">st</span><span class="s2">.</span><span class="s1">write</span><span class="s2">(</span><span class="s1">item</span><span class="s2">[</span><span class="s3">&quot;content&quot;</span><span class="s2">])</span>
+<a name="l187"><span class="ln">187  </span></a>
+<a name="l188"><span class="ln">188  </span></a>
+<a name="l189"><span class="ln">189  </span></a><span class="s5"># --- Database Initialization ---</span>
+<a name="l190"><span class="ln">190  </span></a><span class="s1">initialize_database</span><span class="s2">()</span>
+<a name="l191"><span class="ln">191  </span></a>
+<a name="l192"><span class="ln">192  </span></a><span class="s5"># --- Interface Layout ---</span>
+<a name="l193"><span class="ln">193  </span></a><span class="s1">st</span><span class="s2">.</span><span class="s1">title</span><span class="s2">(</span><span class="s3">&quot;Local RAG Research Assistant&quot;</span><span class="s2">)</span>
+<a name="l194"><span class="ln">194  </span></a><span class="s1">st</span><span class="s2">.</span><span class="s1">write</span><span class="s2">(</span><span class="s3">&quot;Upload PDF or TXT files, compare literal search with semantic retrieval, and generate a cited answer using local Ollama models.&quot;</span><span class="s2">)</span>
+<a name="l195"><span class="ln">195  </span></a>
+<a name="l196"><span class="ln">196  </span></a><span class="s1">uploaded_files </span><span class="s2">= </span><span class="s1">st</span><span class="s2">.</span><span class="s1">file_uploader</span><span class="s2">(</span><span class="s3">&quot;Upload research documents&quot;</span><span class="s2">, </span><span class="s1">type</span><span class="s2">=[</span><span class="s3">&quot;pdf&quot;</span><span class="s2">, </span><span class="s3">&quot;txt&quot;</span><span class="s2">], </span><span class="s1">accept_multiple_files</span><span class="s2">=</span><span class="s0">True</span><span class="s2">)</span>
+<a name="l197"><span class="ln">197  </span></a><span class="s1">pages </span><span class="s2">= </span><span class="s1">extract_documents</span><span class="s2">(</span><span class="s1">uploaded_files</span><span class="s2">)</span>
+<a name="l198"><span class="ln">198  </span></a><span class="s1">chunks </span><span class="s2">= </span><span class="s1">chunk_pages</span><span class="s2">(</span><span class="s1">pages</span><span class="s2">)</span>
+<a name="l199"><span class="ln">199  </span></a>
+<a name="l200"><span class="ln">200  </span></a><span class="s0">if </span><span class="s1">uploaded_files</span><span class="s2">:</span>
+<a name="l201"><span class="ln">201  </span></a>    <span class="s1">st</span><span class="s2">.</span><span class="s1">write</span><span class="s2">(</span><span class="s3">f&quot;Extracted pages: </span><span class="s0">{</span><span class="s1">len</span><span class="s2">(</span><span class="s1">pages</span><span class="s2">)</span><span class="s0">}</span><span class="s3">&quot;</span><span class="s2">)</span>
+<a name="l202"><span class="ln">202  </span></a>    <span class="s1">st</span><span class="s2">.</span><span class="s1">write</span><span class="s2">(</span><span class="s3">f&quot;Prepared chunks: </span><span class="s0">{</span><span class="s1">len</span><span class="s2">(</span><span class="s1">chunks</span><span class="s2">)</span><span class="s0">}</span><span class="s3">&quot;</span><span class="s2">)</span>
+<a name="l203"><span class="ln">203  </span></a>    <span class="s0">if not </span><span class="s1">pages</span><span class="s2">:</span>
+<a name="l204"><span class="ln">204  </span></a>        <span class="s1">st</span><span class="s2">.</span><span class="s1">write</span><span class="s2">(</span><span class="s3">&quot;No readable text was extracted. Scanned PDFs need OCR, which is outside this project.&quot;</span><span class="s2">)</span>
+<a name="l205"><span class="ln">205  </span></a>    <span class="s0">for </span><span class="s1">page </span><span class="s0">in </span><span class="s1">pages</span><span class="s2">[:</span><span class="s4">3</span><span class="s2">]:</span>
+<a name="l206"><span class="ln">206  </span></a>        <span class="s0">with </span><span class="s1">st</span><span class="s2">.</span><span class="s1">expander</span><span class="s2">(</span><span class="s3">f&quot;Preview: </span><span class="s0">{</span><span class="s1">page</span><span class="s2">[</span><span class="s3">'source'</span><span class="s2">]</span><span class="s0">}</span><span class="s3">, page </span><span class="s0">{</span><span class="s1">page</span><span class="s2">[</span><span class="s3">'page'</span><span class="s2">]</span><span class="s0">}</span><span class="s3">&quot;</span><span class="s2">):</span>
+<a name="l207"><span class="ln">207  </span></a>            <span class="s1">st</span><span class="s2">.</span><span class="s1">write</span><span class="s2">(</span><span class="s1">page</span><span class="s2">[</span><span class="s3">&quot;text&quot;</span><span class="s2">][:</span><span class="s4">1000</span><span class="s2">])</span>
+<a name="l208"><span class="ln">208  </span></a>
+<a name="l209"><span class="ln">209  </span></a><span class="s1">question </span><span class="s2">= </span><span class="s1">st</span><span class="s2">.</span><span class="s1">text_input</span><span class="s2">(</span><span class="s3">&quot;Research question&quot;</span><span class="s2">, </span><span class="s1">value</span><span class="s2">=</span><span class="s1">DEFAULT_QUESTION</span><span class="s2">)</span>
+<a name="l210"><span class="ln">210  </span></a>
+<a name="l211"><span class="ln">211  </span></a><span class="s0">if </span><span class="s1">st</span><span class="s2">.</span><span class="s1">button</span><span class="s2">(</span><span class="s3">&quot;1. Test literal phrase search&quot;</span><span class="s2">, </span><span class="s1">disabled</span><span class="s2">=</span><span class="s0">not </span><span class="s1">chunks</span><span class="s2">):</span>
+<a name="l212"><span class="ln">212  </span></a>    <span class="s1">matches </span><span class="s2">= </span><span class="s1">literal_phrase_search</span><span class="s2">(</span><span class="s1">chunks</span><span class="s2">, </span><span class="s1">question</span><span class="s2">)</span>
+<a name="l213"><span class="ln">213  </span></a>    <span class="s1">st</span><span class="s2">.</span><span class="s1">write</span><span class="s2">(</span><span class="s3">f&quot;Exact phrase matches: </span><span class="s0">{</span><span class="s1">len</span><span class="s2">(</span><span class="s1">matches</span><span class="s2">)</span><span class="s0">}</span><span class="s3">&quot;</span><span class="s2">)</span>
+<a name="l214"><span class="ln">214  </span></a>    <span class="s0">if not </span><span class="s1">matches</span><span class="s2">:</span>
+<a name="l215"><span class="ln">215  </span></a>        <span class="s1">st</span><span class="s2">.</span><span class="s1">write</span><span class="s2">(</span><span class="s3">&quot;The full question is absent even though one document discusses the idea.&quot;</span><span class="s2">)</span>
+<a name="l216"><span class="ln">216  </span></a>
+<a name="l217"><span class="ln">217  </span></a><span class="s0">if </span><span class="s1">st</span><span class="s2">.</span><span class="s1">button</span><span class="s2">(</span><span class="s3">&quot;2. Index documents&quot;</span><span class="s2">, </span><span class="s1">disabled</span><span class="s2">=</span><span class="s0">not </span><span class="s1">chunks</span><span class="s2">):</span>
+<a name="l218"><span class="ln">218  </span></a>    <span class="s1">store_chunks</span><span class="s2">(</span><span class="s1">chunks</span><span class="s2">)</span>
+<a name="l219"><span class="ln">219  </span></a>    <span class="s1">st</span><span class="s2">.</span><span class="s1">write</span><span class="s2">(</span><span class="s3">f&quot;Stored chunks in </span><span class="s0">{</span><span class="s1">DB_PATH</span><span class="s0">}</span><span class="s3">: </span><span class="s0">{</span><span class="s1">count_stored_chunks</span><span class="s2">()</span><span class="s0">}</span><span class="s3">&quot;</span><span class="s2">)</span>
+<a name="l220"><span class="ln">220  </span></a>
+<a name="l221"><span class="ln">221  </span></a><span class="s0">if </span><span class="s1">st</span><span class="s2">.</span><span class="s1">button</span><span class="s2">(</span><span class="s3">&quot;3. Preview semantic retrieval&quot;</span><span class="s2">, </span><span class="s1">disabled</span><span class="s2">=</span><span class="s0">not </span><span class="s1">question</span><span class="s2">):</span>
+<a name="l222"><span class="ln">222  </span></a>    <span class="s0">if </span><span class="s1">count_stored_chunks</span><span class="s2">() == </span><span class="s4">0</span><span class="s2">:</span>
+<a name="l223"><span class="ln">223  </span></a>        <span class="s1">st</span><span class="s2">.</span><span class="s1">write</span><span class="s2">(</span><span class="s3">&quot;Index at least one document first.&quot;</span><span class="s2">)</span>
+<a name="l224"><span class="ln">224  </span></a>    <span class="s0">else</span><span class="s2">:</span>
+<a name="l225"><span class="ln">225  </span></a>        <span class="s1">evidence </span><span class="s2">= </span><span class="s1">retrieve</span><span class="s2">(</span><span class="s1">question</span><span class="s2">)</span>
+<a name="l226"><span class="ln">226  </span></a>        <span class="s1">st</span><span class="s2">.</span><span class="s1">write</span><span class="s2">(</span><span class="s3">&quot;Semantic retrieval results&quot;</span><span class="s2">)</span>
+<a name="l227"><span class="ln">227  </span></a>        <span class="s1">render_evidence</span><span class="s2">(</span><span class="s1">evidence</span><span class="s2">)</span>
+<a name="l228"><span class="ln">228  </span></a>
+<a name="l229"><span class="ln">229  </span></a><span class="s0">if </span><span class="s1">st</span><span class="s2">.</span><span class="s1">button</span><span class="s2">(</span><span class="s3">&quot;4. Ask the research assistant&quot;</span><span class="s2">, </span><span class="s1">disabled</span><span class="s2">=</span><span class="s0">not </span><span class="s1">question</span><span class="s2">):</span>
+<a name="l230"><span class="ln">230  </span></a>    <span class="s0">if </span><span class="s1">count_stored_chunks</span><span class="s2">() == </span><span class="s4">0</span><span class="s2">:</span>
+<a name="l231"><span class="ln">231  </span></a>        <span class="s1">st</span><span class="s2">.</span><span class="s1">write</span><span class="s2">(</span><span class="s3">&quot;Index at least one document first.&quot;</span><span class="s2">)</span>
+<a name="l232"><span class="ln">232  </span></a>    <span class="s0">else</span><span class="s2">:</span>
+<a name="l233"><span class="ln">233  </span></a>        <span class="s1">evidence </span><span class="s2">= </span><span class="s1">retrieve</span><span class="s2">(</span><span class="s1">question</span><span class="s2">)</span>
+<a name="l234"><span class="ln">234  </span></a>        <span class="s1">st</span><span class="s2">.</span><span class="s1">write</span><span class="s2">(</span><span class="s3">&quot;Grounded answer&quot;</span><span class="s2">)</span>
+<a name="l235"><span class="ln">235  </span></a>        <span class="s1">st</span><span class="s2">.</span><span class="s1">write</span><span class="s2">(</span><span class="s1">answer_question</span><span class="s2">(</span><span class="s1">question</span><span class="s2">, </span><span class="s1">evidence</span><span class="s2">))</span>
+<a name="l236"><span class="ln">236  </span></a>        <span class="s1">st</span><span class="s2">.</span><span class="s1">write</span><span class="s2">(</span><span class="s3">&quot;Retrieved evidence&quot;</span><span class="s2">)</span>
+<a name="l237"><span class="ln">237  </span></a>        <span class="s1">render_evidence</span><span class="s2">(</span><span class="s1">evidence</span><span class="s2">)</span></pre>
+</body>
+</html>
