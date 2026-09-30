@@ -1,5 +1,3 @@
 streamlit
-requests
 openai
-psycopg2-binary
-numpy
+pypdf
